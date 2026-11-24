@@ -13,7 +13,7 @@ class BookRepository extends BaseRepository
              ORDER BY books.title'
         );
 
-        return $statement->fetchAll();
+        return $statement->fetch_all(MYSQLI_ASSOC);
     }
 
     public function add(array $data): void
@@ -26,11 +26,23 @@ class BookRepository extends BaseRepository
         }
         $statement = $this->connection->prepare(
             'INSERT INTO books (title, author, category_id, supplier_id, price, stock, cover_image, description)
-             VALUES (:title, :author, :category_id, :supplier_id, :price, :stock, :cover_image, :description)'
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $parameters = BookRepositorySupport::parameters($book, $categoryId);
         $parameters['supplier_id'] = $supplierId > 0 ? $supplierId : null;
-        $statement->execute($parameters);
+        $statement->bind_param(
+            'ssidis',
+            $parameters['title'],
+            $parameters['author'],
+            $parameters['category_id'],
+            $parameters['supplier_id'],
+            $parameters['price'],
+            $parameters['stock'],
+            $parameters['cover_image'],
+            $parameters['description']
+        );
+        $statement->execute();
+        $statement->close();
     }
 
     public function update(int $bookId, array $data): bool
@@ -45,12 +57,25 @@ class BookRepository extends BaseRepository
         $parameters['supplier_id'] = $supplierId > 0 ? $supplierId : null;
         $parameters['id'] = $bookId;
         $statement = $this->connection->prepare(
-            'UPDATE books SET title = :title, author = :author, category_id = :category_id,
-             supplier_id = :supplier_id, price = :price, stock = :stock,
-             cover_image = :cover_image, description = :description
-             WHERE id = :id'
+            'UPDATE books SET title = ?, author = ?, category_id = ?,
+             supplier_id = ?, price = ?, stock = ?,
+             cover_image = ?, description = ?
+             WHERE id = ?'
         );
-        $statement->execute($parameters);
+        $statement->bind_param(
+            'ssidisisi',
+            $parameters['title'],
+            $parameters['author'],
+            $parameters['category_id'],
+            $parameters['supplier_id'],
+            $parameters['price'],
+            $parameters['stock'],
+            $parameters['cover_image'],
+            $parameters['description'],
+            $parameters['id']
+        );
+        $statement->execute();
+        $statement->close();
         return true;
     }
 
@@ -59,21 +84,31 @@ class BookRepository extends BaseRepository
         if ($bookId < 1 || !$this->exists($bookId)) {
             return false;
         }
-        $orders = $this->connection->prepare('SELECT id FROM purchase_requests WHERE book_id = :id LIMIT 1');
-        $orders->execute(['id' => $bookId]);
-        if ($orders->fetch() !== false) {
+        $orders = $this->connection->prepare('SELECT id FROM purchase_requests WHERE book_id = ? LIMIT 1');
+        $orders->bind_param('i', $bookId);
+        $orders->execute();
+        $ordersResult = $orders->get_result();
+        if ($ordersResult->fetch_assoc() !== null) {
+            $orders->close();
             return false;
         }
-        $delete = $this->connection->prepare('DELETE FROM books WHERE id = :id');
-        $delete->execute(['id' => $bookId]);
-        return $delete->rowCount() === 1;
+        $orders->close();
+        $delete = $this->connection->prepare('DELETE FROM books WHERE id = ?');
+        $delete->bind_param('i', $bookId);
+        $delete->execute();
+        $affected = $delete->affected_rows;
+        $delete->close();
+        return $affected === 1;
     }
 
     private function exists(int $bookId): bool
     {
-        $statement = $this->connection->prepare('SELECT id FROM books WHERE id = :id');
-        $statement->execute(['id' => $bookId]);
-        return $statement->fetch() !== false;
+        $statement = $this->connection->prepare('SELECT id FROM books WHERE id = ?');
+        $statement->bind_param('i', $bookId);
+        $statement->execute();
+        $result = $statement->get_result();
+        $row = $result->fetch_assoc();
+        $statement->close();
+        return $row !== null;
     }
-
 }

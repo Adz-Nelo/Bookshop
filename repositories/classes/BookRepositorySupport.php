@@ -2,15 +2,18 @@
 
 class BookRepositorySupport
 {
-    public static function categoryId(PDO $connection, string $name): int
+    public static function categoryId(mysqli $connection, string $name): int
     {
-        $statement = $connection->prepare('SELECT id FROM categories WHERE name = :name');
-        $statement->execute(['name' => $name]);
-        $categoryId = $statement->fetchColumn();
-        if ($categoryId === false) {
+        $statement = $connection->prepare('SELECT id FROM categories WHERE name = ?');
+        $statement->bind_param('s', $name);
+        $statement->execute();
+        $result = $statement->get_result();
+        $row = $result->fetch_row();
+        $statement->close();
+        if ($row === null) {
             throw new RuntimeException('Select a category that exists before saving a book.');
         }
-        return (int) $categoryId;
+        return (int) $row[0];
     }
 
     public static function parameters(Book $book, int $categoryId): array

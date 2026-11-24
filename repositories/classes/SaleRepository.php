@@ -4,13 +4,15 @@ class SaleRepository extends BaseRepository
 {
     public function getAll()
     {
-        return $this->connection->query(
+        $result = $this->connection->query(
             'SELECT sales.book_title AS book, sales.quantity, sales.total, sales.created_at,
                     customers.name AS customer
              FROM sales
              LEFT JOIN customers ON customers.id = sales.customer_id
              ORDER BY sales.id DESC'
-        )->fetchAll();
+        );
+
+        return $result->fetch_all(MYSQLI_ASSOC);
     }
 
     public function add($data)
@@ -23,42 +25,40 @@ class SaleRepository extends BaseRepository
             return false;
         }
 
-        $this->connection->beginTransaction();
+        $this->connection->autocommit(FALSE);
 
         try {
             $update = $this->connection->prepare(
-                'UPDATE books SET stock = stock - :quantity
-                 WHERE id = :id AND stock >= :available'
+                'UPDATE books SET stock = stock - ?
+                 WHERE id = ? AND stock >= ?'
             );
-            $update->execute([
-                'quantity' => $quantity,
-                'id' => $bookId,
-                'available' => $quantity,
-            ]);
+            $update->bind_param('iii', $quantity, $bookId, $quantity);
+            $update->execute();
+            $affected = $update->affected_rows;
+            $update->close();
 
-            if ($update->rowCount() !== 1) {
-                $this->connection->rollBack();
+            if ($affected !== 1) {
+                $this->connection->rollback();
+                $this->connection->autocommit(TRUE);
                 return false;
             }
 
             $sale = $this->connection->prepare(
                 'INSERT INTO sales (book_id, customer_id, book_title, quantity, total)
-                 SELECT id, :customer_id, title, :quantity, price * :total_quantity
-                 FROM books WHERE id = :id'
+                 SELECT id, ?, title, ?, price * ?
+                 FROM books WHERE id = ?'
             );
-            $sale->execute([
-                'customer_id' => $customerId > 0 ? $customerId : null,
-                'quantity' => $quantity,
-                'total_quantity' => $quantity,
-                'id' => $bookId,
-            ]);
+            $nullableCustomerId = $customerId > 0 ? $customerId : null;
+            $sale->bind_param('iiii', $nullableCustomerId, $quantity, $quantity, $bookId);
+            $sale->execute();
+            $sale->close();
 
             $this->connection->commit();
+            $this->connection->autocommit(TRUE);
             return true;
         } catch (Throwable $exception) {
-            if ($this->connection->inTransaction()) {
-                $this->connection->rollBack();
-            }
+            $this->connection->rollback();
+            $this->connection->autocommit(TRUE);
 
             throw $exception;
         }
@@ -88,10 +88,13 @@ class SaleRepository extends BaseRepository
         }
 
         $book = $this->connection->prepare(
-            'SELECT price, stock FROM books WHERE id = :id'
+            'SELECT price, stock FROM books WHERE id = ?'
         );
-        $book->execute(['id' => $bookId]);
-        $bookDetails = $book->fetch();
+        $book->bind_param('i', $bookId);
+        $book->execute();
+        $bookResult = $book->get_result();
+        $bookDetails = $bookResult->fetch_assoc();
+        $book->close();
 
         if (!$bookDetails || $quantity > (int) $bookDetails['stock']) {
             return false;
@@ -102,28 +105,21 @@ class SaleRepository extends BaseRepository
                 (user_id, book_id, quantity, total, shipping_name, phone,
                  shipping_address, payment_method, payment_reference, payment_status)
              VALUES
-                (:user_id, :book_id, :quantity, :total, :shipping_name, :phone,
-                 :shipping_address, :payment_method, :payment_reference, :payment_status)'
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
-        $request->execute([
-            'user_id' => $userId,
-            'book_id' => $bookId,
-            'quantity' => $quantity,
-            'total' => (float) $bookDetails['price'] * $quantity,
-            'shipping_name' => $shippingName,
-            'phone' => $phone,
-            'shipping_address' => $shippingAddress,
-            'payment_method' => $paymentMethod,
-            'payment_reference' => null,
-            'payment_status' => 'not_paid',
-        ]);
+        $total = (float) $bookDetails['price'] * $quantity;
+        $nullRef = null;
+        $request->bind_param('iidsssssss', $userId, $bookId, $quantity, $total,
+            $shippingName, $phone, $shippingAddress, $paymentMethod, $nullRef, 'not_paid');
+        $request->execute();
+        $request->close();
 
         return true;
     }
 
     public function getManageableRequests(): array
     {
-        return $this->connection->query(
+        $result = $this->connection->query(
             'SELECT purchase_requests.id, users.name AS customer, users.email,
                     books.title AS book, purchase_requests.quantity,
                     purchase_requests.total, purchase_requests.status,
@@ -136,7 +132,9 @@ class SaleRepository extends BaseRepository
              INNER JOIN books ON books.id = purchase_requests.book_id
              WHERE purchase_requests.status IN ("pending", "approved")
              ORDER BY purchase_requests.created_at'
-        )->fetchAll();
+        );
+
+        return $result->fetch_all(MYSQLI_ASSOC);
     }
 
     public function getRequestsForUser(int $userId): array
@@ -150,12 +148,16 @@ class SaleRepository extends BaseRepository
                     purchase_requests.created_at
              FROM purchase_requests
              INNER JOIN books ON books.id = purchase_requests.book_id
-             WHERE purchase_requests.user_id = :user_id
+             WHERE purchase_requests.user_id = ?
              ORDER BY purchase_requests.created_at DESC'
         );
-        $statement->execute(['user_id' => $userId]);
+        $statement->bind_param('i', $userId);
+        $statement->execute();
+        $result = $statement->get_result();
+        $rows = $result->fetch_all(MYSQLI_ASSOC);
+        $statement->close();
 
-        return $statement->fetchAll();
+        return $rows;
     }
 
     public function markPaymentReceived(int $requestId): bool
@@ -167,11 +169,14 @@ class SaleRepository extends BaseRepository
         $statement = $this->connection->prepare(
             'UPDATE purchase_requests
              SET payment_status = "paid"
-             WHERE id = :id AND status != "rejected" AND payment_status != "paid"'
+             WHERE id = ? AND status != "rejected" AND payment_status != "paid"'
         );
-        $statement->execute(['id' => $requestId]);
+        $statement->bind_param('i', $requestId);
+        $statement->execute();
+        $affected = $statement->affected_rows;
+        $statement->close();
 
-        return $statement->rowCount() === 1;
+        return $affected === 1;
     }
 
     public function reviewPurchaseRequest(int $requestId, string $decision): bool
@@ -180,7 +185,7 @@ class SaleRepository extends BaseRepository
             return false;
         }
 
-        $this->connection->beginTransaction();
+        $this->connection->autocommit(FALSE);
 
         try {
             $request = $this->connection->prepare(
@@ -189,66 +194,67 @@ class SaleRepository extends BaseRepository
                         purchase_requests.user_id, books.title
                  FROM purchase_requests
                  INNER JOIN books ON books.id = purchase_requests.book_id
-                 WHERE purchase_requests.id = :id
+                 WHERE purchase_requests.id = ?
                  FOR UPDATE'
             );
-            $request->execute(['id' => $requestId]);
-            $purchase = $request->fetch();
+            $request->bind_param('i', $requestId);
+            $request->execute();
+            $result = $request->get_result();
+            $purchase = $result->fetch_assoc();
+            $request->close();
 
             if (!$purchase || $purchase['status'] !== 'pending') {
-                $this->connection->rollBack();
+                $this->connection->rollback();
+                $this->connection->autocommit(TRUE);
                 return false;
             }
 
             if ($decision === 'approve') {
                 $updateStock = $this->connection->prepare(
-                    'UPDATE books SET stock = stock - :quantity
-                     WHERE id = :id AND stock >= :available'
+                    'UPDATE books SET stock = stock - ?
+                     WHERE id = ? AND stock >= ?'
                 );
-                $updateStock->execute([
-                    'quantity' => $purchase['quantity'],
-                    'id' => $purchase['book_id'],
-                    'available' => $purchase['quantity'],
-                ]);
+                $updateStock->bind_param('iii', $purchase['quantity'], $purchase['book_id'], $purchase['quantity']);
+                $updateStock->execute();
+                $stockAffected = $updateStock->affected_rows;
+                $updateStock->close();
 
-                if ($updateStock->rowCount() !== 1) {
-                    $this->connection->rollBack();
+                if ($stockAffected !== 1) {
+                    $this->connection->rollback();
+                    $this->connection->autocommit(TRUE);
                     return false;
                 }
 
                 $sale = $this->connection->prepare(
                     'INSERT INTO sales (book_id, customer_id, book_title, quantity, total)
                      VALUES (
-                        :book_id,
-                        (SELECT id FROM customers WHERE user_id = :user_id LIMIT 1),
-                        :book_title,
-                        :quantity,
-                        :total
+                         ?,
+                         (SELECT id FROM customers WHERE user_id = ? LIMIT 1),
+                         ?,
+                         ?,
+                         ?
                      )'
                 );
-                $sale->execute([
-                    'book_id' => $purchase['book_id'],
-                    'user_id' => $purchase['user_id'],
-                    'book_title' => $purchase['title'],
-                    'quantity' => $purchase['quantity'],
-                    'total' => $purchase['total'],
-                ]);
+                $sale->bind_param('iisid', $purchase['book_id'], $purchase['user_id'],
+                    $purchase['title'], $purchase['quantity'], $purchase['total']);
+                $sale->execute();
+                $sale->close();
             }
 
             $updateRequest = $this->connection->prepare(
-                'UPDATE purchase_requests SET status = :status WHERE id = :id'
+                'UPDATE purchase_requests SET status = ? WHERE id = ?'
             );
-            $updateRequest->execute([
-                'status' => $decision === 'approve' ? 'approved' : 'rejected',
-                'id' => $requestId,
-            ]);
+            $status = $decision === 'approve' ? 'approved' : 'rejected';
+            $updateRequest->bind_param('si', $status, $requestId);
+            $updateRequest->execute();
+            $updateRequest->close();
 
             $this->connection->commit();
+            $this->connection->autocommit(TRUE);
             return true;
         } catch (Throwable $exception) {
-            if ($this->connection->inTransaction()) {
-                $this->connection->rollBack();
-            }
+            $this->connection->rollback();
+            $this->connection->autocommit(TRUE);
 
             throw $exception;
         }

@@ -1,69 +1,68 @@
-x<?php
+<?php
 
 class AuthRepository extends BaseRepository
 {
-    public function findByLogin($login)
+    public function findByLogin(string $login)
     {
         $statement = $this->connection->prepare(
             'SELECT id, name, username, email, password_hash, role
              FROM users
-             WHERE username = :username OR email = :email
+             WHERE username = ? OR email = ?
              LIMIT 1'
         );
-        $statement->execute([
-            'username' => trim($login),
-            'email' => trim($login),
-        ]);
+        $trimmedLogin = trim($login);
+        $statement->bind_param('ss', $trimmedLogin, $trimmedLogin);
+        $statement->execute();
+        $result = $statement->get_result();
+        $row = $result->fetch_assoc();
+        $statement->close();
 
-        return $statement->fetch() ?: null;
+        return $row ?: null;
     }
 
-    public function registerClient($name, $username, $email, $password)
+    public function registerClient(string $name, string $username, string $email, string $password)
     {
-        $this->connection->beginTransaction();
+        $this->connection->autocommit(FALSE);
 
         try {
             $existing = $this->connection->prepare(
-                'SELECT id FROM users WHERE username = :username OR email = :email LIMIT 1'
+                'SELECT id FROM users WHERE username = ? OR email = ? LIMIT 1'
             );
-            $existing->execute([
-                'username' => $username,
-                'email' => $email,
-            ]);
-
-            if ($existing->fetch()) {
-                $this->connection->rollBack();
+            $existing->bind_param('ss', $username, $email);
+            $existing->execute();
+            $existingResult = $existing->get_result();
+            if ($existingResult->fetch_assoc()) {
+                $existing->close();
+                $this->connection->rollback();
+                $this->connection->autocommit(TRUE);
                 return false;
             }
+            $existing->close();
 
             $createUser = $this->connection->prepare(
                 'INSERT INTO users (name, username, email, password_hash, role)
-                 VALUES (:name, :username, :email, :password_hash, "client")'
+                 VALUES (?, ?, ?, ?, "client")'
             );
-            $createUser->execute([
-                'name' => $name,
-                'username' => $username,
-                'email' => $email,
-                'password_hash' => password_hash($password, PASSWORD_DEFAULT),
-            ]);
-            $userId = (int) $this->connection->lastInsertId();
+            $passwordHash = password_hash($password, PASSWORD_DEFAULT);
+            $createUser->bind_param('sss', $name, $username, $email, $passwordHash);
+            $createUser->execute();
+            $userId = (int) $this->connection->insert_id;
+            $createUser->close();
 
             $addCustomer = $this->connection->prepare(
-                'INSERT INTO customers (user_id, name, email) VALUES (:user_id, :name, :email)
+                'INSERT INTO customers (user_id, name, email) VALUES (?, ?, ?)
                  ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), name = VALUES(name)'
             );
-            $addCustomer->execute([
-                'user_id' => $userId,
-                'name' => $name,
-                'email' => $email,
-            ]);
+            $addCustomer->bind_param('iss', $userId, $name, $email);
+            $addCustomer->execute();
+            $addCustomer->close();
 
             $this->connection->commit();
+            $this->connection->autocommit(TRUE);
             return $userId;
         } catch (Throwable $exception) {
-            if ($this->connection->inTransaction()) {
-                $this->connection->rollBack();
-            }
+            $this->connection->rollback();
+            $this->connection->autocommit(TRUE);
 
             throw $exception;
         }

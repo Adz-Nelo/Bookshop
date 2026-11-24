@@ -1,8 +1,10 @@
 <?php
 
-function initializeBookshopSchema(PDO $connection): void
+mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+
+function initializeBookshopSchema(mysqli $connection): void
 {
-    $connection->exec(
+    $connection->query(
         'CREATE TABLE IF NOT EXISTS categories (
             id INT UNSIGNED NOT NULL AUTO_INCREMENT,
             name VARCHAR(100) NOT NULL,
@@ -11,7 +13,7 @@ function initializeBookshopSchema(PDO $connection): void
         ) ENGINE=InnoDB'
     );
 
-    $connection->exec(
+    $connection->query(
         'CREATE TABLE IF NOT EXISTS suppliers (
             id INT UNSIGNED NOT NULL AUTO_INCREMENT,
             name VARCHAR(255) NOT NULL,
@@ -21,7 +23,7 @@ function initializeBookshopSchema(PDO $connection): void
         ) ENGINE=InnoDB'
     );
 
-    $connection->exec(
+    $connection->query(
         'CREATE TABLE IF NOT EXISTS books (
             id INT UNSIGNED NOT NULL AUTO_INCREMENT,
             title VARCHAR(255) NOT NULL,
@@ -42,27 +44,27 @@ function initializeBookshopSchema(PDO $connection): void
     );
 
     $coverImageColumn = $connection->query("SHOW COLUMNS FROM books LIKE 'cover_image'");
-    if ($coverImageColumn->fetch() === false) {
-        $connection->exec(
+    if ($coverImageColumn->fetch_assoc() === null) {
+        $connection->query(
             "ALTER TABLE books ADD COLUMN cover_image VARCHAR(255) NOT NULL DEFAULT 'assets/books/default-book.svg'"
         );
     }
 
     $descriptionColumn = $connection->query("SHOW COLUMNS FROM books LIKE 'description'");
-    if ($descriptionColumn->fetch() === false) {
-        $connection->exec('ALTER TABLE books ADD COLUMN description TEXT NULL');
+    if ($descriptionColumn->fetch_assoc() === null) {
+        $connection->query('ALTER TABLE books ADD COLUMN description TEXT NULL');
     }
 
     $supplierColumn = $connection->query("SHOW COLUMNS FROM books LIKE 'supplier_id'");
-    if ($supplierColumn->fetch() === false) {
-        $connection->exec(
+    if ($supplierColumn->fetch_assoc() === null) {
+        $connection->query(
             'ALTER TABLE books ADD COLUMN supplier_id INT UNSIGNED NULL,
              ADD KEY idx_books_supplier (supplier_id),
              ADD CONSTRAINT fk_books_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers (id) ON DELETE SET NULL'
         );
     }
 
-    $connection->exec(
+    $connection->query(
         'CREATE TABLE IF NOT EXISTS customers (
             id INT UNSIGNED NOT NULL AUTO_INCREMENT,
             user_id INT UNSIGNED NULL,
@@ -75,7 +77,7 @@ function initializeBookshopSchema(PDO $connection): void
         ) ENGINE=InnoDB'
     );
 
-    $connection->exec(
+    $connection->query(
         'CREATE TABLE IF NOT EXISTS users (
             id INT UNSIGNED NOT NULL AUTO_INCREMENT,
             name VARCHAR(255) NOT NULL,
@@ -91,8 +93,8 @@ function initializeBookshopSchema(PDO $connection): void
     );
 
     $customerUserColumn = $connection->query("SHOW COLUMNS FROM customers LIKE 'user_id'");
-    if ($customerUserColumn->fetch() === false) {
-        $connection->exec(
+    if ($customerUserColumn->fetch_assoc() === null) {
+        $connection->query(
             'ALTER TABLE customers ADD COLUMN user_id INT UNSIGNED NULL,
              ADD UNIQUE KEY uq_customers_user (user_id),
              ADD CONSTRAINT fk_customers_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL'
@@ -103,22 +105,22 @@ function initializeBookshopSchema(PDO $connection): void
              WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = 'customers'
              AND CONSTRAINT_NAME = 'fk_customers_user'"
         );
-        if ($customerUserConstraint->fetch() === false) {
-            $connection->exec(
+        if ($customerUserConstraint->fetch_assoc() === null) {
+            $connection->query(
                 'ALTER TABLE customers ADD CONSTRAINT fk_customers_user
                  FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL'
             );
         }
     }
 
-    $connection->exec(
+    $connection->query(
         'UPDATE customers
          INNER JOIN users ON users.email = customers.email
          SET customers.user_id = users.id
          WHERE customers.user_id IS NULL'
     );
 
-    $connection->exec(
+    $connection->query(
         'CREATE TABLE IF NOT EXISTS sales (
             id INT UNSIGNED NOT NULL AUTO_INCREMENT,
             book_id INT UNSIGNED NULL,
@@ -136,8 +138,8 @@ function initializeBookshopSchema(PDO $connection): void
     );
 
     $salesBookColumn = $connection->query("SHOW COLUMNS FROM sales LIKE 'book_id'");
-    if ($salesBookColumn->fetch() === false) {
-        $connection->exec(
+    if ($salesBookColumn->fetch_assoc() === null) {
+        $connection->query(
             'ALTER TABLE sales ADD COLUMN book_id INT UNSIGNED NULL,
              ADD KEY idx_sales_book (book_id),
              ADD CONSTRAINT fk_sales_book FOREIGN KEY (book_id) REFERENCES books (id) ON DELETE SET NULL'
@@ -145,19 +147,19 @@ function initializeBookshopSchema(PDO $connection): void
     }
 
     $salesCustomerColumn = $connection->query("SHOW COLUMNS FROM sales LIKE 'customer_id'");
-    if ($salesCustomerColumn->fetch() === false) {
-        $connection->exec(
+    if ($salesCustomerColumn->fetch_assoc() === null) {
+        $connection->query(
             'ALTER TABLE sales ADD COLUMN customer_id INT UNSIGNED NULL,
              ADD KEY idx_sales_customer (customer_id),
              ADD CONSTRAINT fk_sales_customer FOREIGN KEY (customer_id) REFERENCES customers (id) ON DELETE SET NULL'
         );
     }
-    $connection->exec(
+    $connection->query(
         'UPDATE sales INNER JOIN books ON books.title = sales.book_title
          SET sales.book_id = books.id WHERE sales.book_id IS NULL'
     );
 
-    $connection->exec(
+    $connection->query(
         'CREATE TABLE IF NOT EXISTS purchase_requests (
             id INT UNSIGNED NOT NULL AUTO_INCREMENT,
             user_id INT UNSIGNED NOT NULL,
@@ -192,21 +194,21 @@ function initializeBookshopSchema(PDO $connection): void
     ];
     foreach ($purchaseRequestColumns as $column => $definition) {
         $existingColumn = $connection->query(
-            'SHOW COLUMNS FROM purchase_requests LIKE ' . $connection->quote($column)
+            'SHOW COLUMNS FROM purchase_requests LIKE ' . "'" . $connection->real_escape_string($column) . "'"
         );
-        if ($existingColumn->fetch() === false) {
-            $connection->exec(
+        if ($existingColumn->fetch_assoc() === null) {
+            $connection->query(
                 'ALTER TABLE purchase_requests ADD COLUMN ' . $column . ' ' . $definition
             );
         }
     }
 
-    $connection->exec(
+    $connection->query(
         'INSERT INTO categories (name) VALUES ("Fiction"), ("Self-help"), ("Classic"), ("Mystery"), ("Romance")
          ON DUPLICATE KEY UPDATE name = VALUES(name)'
     );
 
-    $connection->exec(
+    $connection->query(
         'INSERT INTO books (title, author, category_id, price, stock, cover_image)
          SELECT "The Midnight Library", "Matt Haig", categories.id, 399.00, 12, "assets/books/midnight-library.svg"
          FROM categories
@@ -214,7 +216,7 @@ function initializeBookshopSchema(PDO $connection): void
          AND NOT EXISTS (SELECT 1 FROM books WHERE title = "The Midnight Library")'
     );
 
-    $connection->exec(
+    $connection->query(
         'INSERT INTO books (title, author, category_id, price, stock, cover_image)
          SELECT "Atomic Habits", "James Clear", categories.id, 520.00, 8, "assets/books/atomic-habits.svg"
          FROM categories
@@ -222,7 +224,7 @@ function initializeBookshopSchema(PDO $connection): void
          AND NOT EXISTS (SELECT 1 FROM books WHERE title = "Atomic Habits")'
     );
 
-    $connection->exec(
+    $connection->query(
         'INSERT INTO books (title, author, category_id, price, stock, cover_image)
          SELECT "Little Women", "Louisa May Alcott", categories.id, 280.00, 4, "assets/books/little-women.svg"
          FROM categories
@@ -230,32 +232,32 @@ function initializeBookshopSchema(PDO $connection): void
          AND NOT EXISTS (SELECT 1 FROM books WHERE title = "Little Women")'
     );
 
-    $connection->exec(
+    $connection->query(
         'INSERT INTO users (name, username, email, password_hash, role)
          SELECT "Bookshop Administrator", "admin", "admin@bookshop.local", "$2y$12$BHbLzFBKI/gY/IICCyHcVej/ZNQrGdjlgUsFlKDS69pzK6DZ/Ebu.", "admin"
          WHERE NOT EXISTS (SELECT 1 FROM users WHERE username = "admin")'
     );
 
-    $connection->exec(
+    $connection->query(
         'INSERT INTO suppliers (name, contact)
          SELECT "Classic Book Distributors", "09123456789"
          WHERE NOT EXISTS (SELECT 1 FROM suppliers WHERE name = "Classic Book Distributors")'
     );
 
-    $connection->exec(
+    $connection->query(
         'INSERT INTO suppliers (name, contact)
          SELECT "Literary House Publishing", "09987654321"
          WHERE NOT EXISTS (SELECT 1 FROM suppliers WHERE name = "Literary House Publishing")'
     );
 
-    $connection->exec(
+    $connection->query(
         'INSERT INTO sales (book_id, book_title, quantity, total)
          SELECT books.id, books.title, 2, 798.00 FROM books
          WHERE books.title = "The Midnight Library"
          AND NOT EXISTS (SELECT 1 FROM sales WHERE book_title = "The Midnight Library")'
     );
 
-    $connection->exec(
+    $connection->query(
         'INSERT INTO sales (book_id, book_title, quantity, total)
          SELECT books.id, books.title, 1, 280.00 FROM books
          WHERE books.title = "Little Women"
@@ -267,7 +269,7 @@ function getDatabaseConnection()
 {
     static $connection = null;
 
-    if ($connection instanceof PDO) {
+    if ($connection instanceof mysqli) {
         return $connection;
     }
 
@@ -277,22 +279,22 @@ function getDatabaseConnection()
     $password = '';
 
     try {
-        $serverConnection = new PDO("mysql:host={$host};charset=utf8mb4", $username, $password, [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES => false,
-        ]);
+        $serverConnection = new mysqli($host, $username, $password);
+        if ($serverConnection->connect_error) {
+            throw new mysqli_sql_exception($serverConnection->connect_error);
+        }
 
-        $serverConnection->exec("CREATE DATABASE IF NOT EXISTS `{$database}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+        $serverConnection->query("CREATE DATABASE IF NOT EXISTS `{$database}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
 
-        $connection = new PDO("mysql:host={$host};dbname={$database};charset=utf8mb4", $username, $password, [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES => false,
-        ]);
+        $connection = new mysqli($host, $username, $password, $database);
+        if ($connection->connect_error) {
+            throw new mysqli_sql_exception($connection->connect_error);
+        }
+
+        $connection->set_charset('utf8mb4');
 
         initializeBookshopSchema($connection);
-    } catch (PDOException $exception) {
+    } catch (mysqli_sql_exception $exception) {
         http_response_code(500);
         exit(
             'Unable to connect to MySQL. Start MySQL in XAMPP and ensure the root user is available. '

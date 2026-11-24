@@ -4,19 +4,22 @@ class SupplierRepository extends BaseRepository
 {
     public function getAll()
     {
-        return $this->connection->query(
+        $result = $this->connection->query(
             'SELECT id, name, contact FROM suppliers ORDER BY name'
-        )->fetchAll();
+        );
+
+        return $result->fetch_all(MYSQLI_ASSOC);
     }
 
     public function add($data)
     {
+        $name = trim($data['name']);
+        $contact = trim($data['contact']);
         $statement = $this->connection->prepare(
-            'INSERT INTO suppliers (name, contact) VALUES (:name, :contact)'
+            'INSERT INTO suppliers (name, contact) VALUES (?, ?)'
         );
-        $statement->execute([
-            'name' => trim($data['name']),
-            'contact' => trim($data['contact']),
-        ]);
+        $statement->bind_param('ss', $name, $contact);
+        $statement->execute();
+        $statement->close();
     }
 }

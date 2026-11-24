@@ -1,0 +1,20 @@
+
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="900" viewBox="0 0 600 900">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#2b1b10"/>
+      <stop offset="100%" stop-color="#4a2f1c"/>
+    </linearGradient>
+    <linearGradient id="frame" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#c29347"/>
+      <stop offset="100%" stop-color="#f5e6b6"/>
+    </linearGradient>
+  </defs>
+  <rect width="600" height="900" fill="url(#bg)"/>
+  <rect x="40" y="40" width="520" height="820" rx="26" fill="none" stroke="url(#frame)" stroke-width="4"/>
+  <rect x="95" y="95" width="410" height="710" rx="20" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.2)"/>
+  <circle cx="300" cy="255" r="150" fill="rgba(255,255,255,0.06)"/>
+  <path d="M 150 635 C 220 560, 380 560, 450 635" stroke="#c29347" stroke-width="6" fill="none" opacity="0.8"/>
+  <text x="50%" y="160" text-anchor="middle" fill="#f5e6b6" font-size="56" font-family="Georgia, serif" font-weight="700" letter-spacing="4"><tspan x="50%" dy="0">Whispering</tspan><tspan x="50%" dy="72">Scriptorium</tspan></text>
+  <text x="50%" y="770" text-anchor="middle" fill="#f5e6b6" font-size="18" font-family="Arial, sans-serif" letter-spacing="6">WHISPERING SCRIPTORIUM</text>
+</svg>
